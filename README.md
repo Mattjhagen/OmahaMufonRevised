@@ -11,7 +11,7 @@ Real-time aircraft tracking system for UAP sighting correlation in the Omaha, NE
 - Real-time aircraft map with source badges [ADS-B] and [API]
 - UAP sighting report submission
 - Historical "rewind" view for sighting correlation
-- Public URL: uap.mattjhagen.xyz
+- Public URL: mufonomaha.space
 
 **OpenSky API Proxy (Port 8080)**
 - Fetches aircraft data from OpenSky Network
