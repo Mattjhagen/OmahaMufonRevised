@@ -1,0 +1,6 @@
+{
+  "name": "Omaha MUFON - UAP Airspace Tracker",
+  "description": "Professional aerial correlation and ADS-B tracking console for Omaha MUFON and regional researchers to correlate sightings with known aircraft.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
