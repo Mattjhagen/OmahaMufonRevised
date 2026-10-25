@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Plane,
   Search,
@@ -55,6 +55,14 @@ export const LiveRadarView: React.FC<LiveRadarViewProps> = ({
   const [chatRole, setChatRole] = useState<string>('Field Investigator');
   const [chatInput, setChatInput] = useState<string>('');
   const [chatTag, setChatTag] = useState<'alert' | 'sighting' | 'weather' | 'general'>('general');
+  const chatMessagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll chat to bottom when new messages arrive
+  useEffect(() => {
+    if (isChatOpen) {
+      chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages, isChatOpen]);
 
   // Fetch live weather data from /api/weather
   useEffect(() => {
@@ -555,14 +563,19 @@ export const LiveRadarView: React.FC<LiveRadarViewProps> = ({
           ) : (
             /* Live Radar Chat Mode */
             <div className="flex-1 flex flex-col justify-between pt-2">
-              <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
-                {chatMessages.slice(-20).map((msg) => (
+              <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 max-h-[380px]">
+                {chatMessages.map((msg) => (
                   <div
                     key={msg.id}
                     className="bg-slate-950/70 border border-slate-800/80 rounded-lg p-2.5 text-xs space-y-1"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-200">{msg.name}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-slate-200">{msg.name}</span>
+                        {msg.role && (
+                          <span className="text-[10px] font-mono text-slate-500">[{msg.role}]</span>
+                        )}
+                      </div>
                       <span className="text-[10px] font-mono text-slate-500">
                         {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
@@ -570,6 +583,7 @@ export const LiveRadarView: React.FC<LiveRadarViewProps> = ({
                     <p className="text-slate-300 leading-relaxed font-sans">{msg.message}</p>
                   </div>
                 ))}
+                <div ref={chatMessagesEndRef} />
               </div>
 
               {/* Chat Input Form */}

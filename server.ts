@@ -196,6 +196,29 @@ async function startServer() {
     }
   });
 
+  // Map Provider Configuration (CARTO & OpenWeather)
+  app.get('/api/map/config', (req, res) => {
+    const cartoKey = process.env.CARTO_API_KEY;
+    const weatherKey = process.env.OPENWEATHER_API_KEY;
+    const hasCartoKey = Boolean(cartoKey && cartoKey !== 'MY_CARTO_API_KEY' && cartoKey.trim().length > 0);
+    const hasWeatherKey = Boolean(weatherKey && weatherKey !== 'MY_OPENWEATHER_API_KEY' && weatherKey.trim().length > 0);
+
+    res.json({
+      carto: {
+        hasKey: hasCartoKey,
+        key: hasCartoKey ? cartoKey : null,
+        styles: [
+          { id: 'dark', name: 'CARTO Dark Matter', path: 'dark_all' },
+          { id: 'voyager', name: 'CARTO Voyager Tactical', path: 'rastertiles/voyager_labels_under' },
+          { id: 'positron', name: 'CARTO Positron Light', path: 'light_all' },
+        ],
+      },
+      weather: {
+        hasKey: hasWeatherKey,
+      },
+    });
+  });
+
   // Setup Vite in development or serve static in production
   if (!isProduction) {
     const vite = await createViteServer({

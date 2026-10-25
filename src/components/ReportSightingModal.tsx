@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, MapPin, Compass, Camera, Upload, AlertCircle } from 'lucide-react';
+import { X, MapPin, Compass, Camera, Upload, AlertCircle, Navigation, Loader2 } from 'lucide-react';
 import { SightingReport, SightingType } from '../types';
+import { useGeolocation } from '../hooks/useGeolocation';
 
 interface ReportSightingModalProps {
   isOpen: boolean;
@@ -41,6 +42,24 @@ export const ReportSightingModal: React.FC<ReportSightingModalProps> = ({
   const [type, setType] = useState<SightingType>('Triangle');
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [isGeocoding, setIsGeocoding] = useState(false);
+  const [gpsStatus, setGpsStatus] = useState<string | null>(null);
+
+  const { requestLocation, loading: isGpsLoading, accuracy: gpsAccuracy } = useGeolocation();
+
+  const handleAcquireGPS = async () => {
+    setGpsStatus('Acquiring satellite lock...');
+    const result = await requestLocation();
+    if (result) {
+      setLat(Number(result.lat.toFixed(5)));
+      setLon(Number(result.lon.toFixed(5)));
+      if (result.locationName) {
+        setLocationText(result.locationName);
+      }
+      setGpsStatus(`GPS lock acquired (${result.lat.toFixed(4)}°, ${result.lon.toFixed(4)}°)`);
+    } else {
+      setGpsStatus('Could not acquire GPS position. Check permissions.');
+    }
+  };
 
   const fetchOsmAddress = async (targetLat: number, targetLon: number) => {
     setIsGeocoding(true);
@@ -187,21 +206,45 @@ export const ReportSightingModal: React.FC<ReportSightingModalProps> = ({
           {/* Location Text & Lat/Lon Coordinates */}
           <div className="space-y-2">
             <div>
-              <div className="flex items-center justify-between mb-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
                 <label className="text-xs font-mono uppercase text-slate-400">
                   Observation Location Description
                 </label>
-                <button
-                  type="button"
-                  disabled={isGeocoding}
-                  onClick={() => fetchOsmAddress(lat, lon)}
-                  className="text-[11px] font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-1 disabled:opacity-50"
-                  title="Reverse geocode coordinates using OpenStreetMap Nominatim API"
-                >
-                  <MapPin className="w-3 h-3" />
-                  <span>{isGeocoding ? 'Querying OSM API...' : 'Lookup with OpenStreetMap API'}</span>
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    disabled={isGpsLoading}
+                    onClick={handleAcquireGPS}
+                    className="text-[11px] font-mono text-emerald-400 hover:text-emerald-300 flex items-center gap-1 bg-emerald-950/40 border border-emerald-800/60 px-2 py-0.5 rounded disabled:opacity-50 transition-colors"
+                    title="Acquire current observer coordinates using device GPS sensor"
+                  >
+                    {isGpsLoading ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Navigation className="w-3 h-3" />
+                    )}
+                    <span>{isGpsLoading ? 'Locking GPS...' : 'Use My GPS Location'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isGeocoding}
+                    onClick={() => fetchOsmAddress(lat, lon)}
+                    className="text-[11px] font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-1 disabled:opacity-50"
+                    title="Reverse geocode coordinates using OpenStreetMap Nominatim API"
+                  >
+                    <MapPin className="w-3 h-3" />
+                    <span>{isGeocoding ? 'Querying...' : 'OSM Lookup'}</span>
+                  </button>
+                </div>
               </div>
+              {gpsStatus && (
+                <div className="text-[11px] font-mono text-emerald-400 mb-1 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>{gpsStatus}</span>
+                  {gpsAccuracy && <span className="text-slate-500">(±{gpsAccuracy}m)</span>}
+                </div>
+              )}
               <input
                 type="text"
                 value={locationText}

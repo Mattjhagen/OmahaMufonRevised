@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
+import { Navigation, Loader2 } from 'lucide-react';
 import { Aircraft, SightingReport, WeatherLayerType } from '../types';
+import { useGeolocation } from '../hooks/useGeolocation';
 
 interface AirspaceMapProps {
   aircraft: Aircraft[];
@@ -34,10 +36,73 @@ export const AirspaceMap: React.FC<AirspaceMapProps> = ({
   const aircraftLayerRef = useRef<L.LayerGroup | null>(null);
   const sightingLayerRef = useRef<L.LayerGroup | null>(null);
   const landmarksLayerRef = useRef<L.LayerGroup | null>(null);
+  const userLocationLayerRef = useRef<L.LayerGroup | null>(null);
   const weatherTileLayerRef = useRef<L.TileLayer | null>(null);
-  const [osmStyle, setOsmStyle] = useState<'standard' | 'dark' | 'humanitarian'>('dark');
+  const [mapStyle, setMapStyle] = useState<'carto_dark' | 'carto_voyager' | 'carto_positron' | 'osm_standard'>('carto_dark');
+  const [cartoKey, setCartoKey] = useState<string | null>(null);
   const [radarTimestamp, setRadarTimestamp] = useState<number | null>(null);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lon: number; locationName: string } | null>(null);
   const baseTileLayerRef = useRef<L.TileLayer | null>(null);
+
+  const { requestLocation, loading: isGpsLoading, accuracy: gpsAccuracy } = useGeolocation();
+
+  const handleLocateUser = async () => {
+    const loc = await requestLocation();
+    if (loc && mapInstanceRef.current && userLocationLayerRef.current) {
+      setUserLocation(loc);
+      mapInstanceRef.current.flyTo([loc.lat, loc.lon], 13, { duration: 1.2 });
+
+      userLocationLayerRef.current.clearLayers();
+      const pulseHtml = `
+        <div style="position:relative; width:28px; height:28px; display:flex; align-items:center; justify-content:center;">
+          <div style="width:14px; height:14px; border-radius:50%; background:#06b6d4; border:2px solid #fff; box-shadow:0 0 12px #06b6d4;"></div>
+          <div style="position:absolute; inset:0; border-radius:50%; border:2px solid #06b6d4; opacity:0.6; animation:ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
+        </div>
+      `;
+      const locIcon = L.divIcon({
+        className: 'user-gps-marker',
+        html: pulseHtml,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      });
+
+      L.marker([loc.lat, loc.lon], { icon: locIcon })
+        .bindPopup(`
+          <div style="font-family:'Plus Jakarta Sans',sans-serif;">
+            <div style="font-size:10px; font-family:'JetBrains Mono',monospace; color:#06b6d4; font-weight:bold; text-transform:uppercase;">Observer GPS Position</div>
+            <strong style="font-size:12px; color:#f8fafc;">${loc.locationName}</strong>
+            <div style="font-size:11px; color:#94a3b8; margin-top:2px; font-family:'JetBrains Mono',monospace;">
+              ${loc.lat.toFixed(4)}°N, ${Math.abs(loc.lon).toFixed(4)}°W
+            </div>
+          </div>
+        `)
+        .openPopup()
+        .addTo(userLocationLayerRef.current);
+
+      if (gpsAccuracy) {
+        L.circle([loc.lat, loc.lon], {
+          radius: gpsAccuracy,
+          color: '#06b6d4',
+          weight: 1,
+          opacity: 0.4,
+          fillColor: '#06b6d4',
+          fillOpacity: 0.08,
+        }).addTo(userLocationLayerRef.current);
+      }
+    }
+  };
+
+  // Fetch map configuration (CARTO API key)
+  useEffect(() => {
+    fetch('/api/map/config')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.carto?.hasKey && data.carto?.key) {
+          setCartoKey(data.carto.key);
+        }
+      })
+      .catch((err) => console.warn('Could not load map config:', err));
+  }, []);
 
   // Initialize Map
   useEffect(() => {
@@ -52,9 +117,9 @@ export const AirspaceMap: React.FC<AirspaceMapProps> = ({
       scrollWheelZoom: true,
     });
 
-    // High-contrast dark cartographic base
+    // CARTO Dark Matter base
     const baseTile = L.tileLayer(
-      'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_labels_under/{z}/{x}/{y}{r}.png',
+      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
       {
         attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OpenStreetMap contributors',
         maxZoom: 19,
@@ -66,10 +131,12 @@ export const AirspaceMap: React.FC<AirspaceMapProps> = ({
     const aircraftGroup = L.layerGroup().addTo(map);
     const sightingGroup = L.layerGroup().addTo(map);
     const landmarksGroup = L.layerGroup().addTo(map);
+    const userLocationGroup = L.layerGroup().addTo(map);
 
     aircraftLayerRef.current = aircraftGroup;
     sightingLayerRef.current = sightingGroup;
     landmarksLayerRef.current = landmarksGroup;
+    userLocationLayerRef.current = userLocationGroup;
     mapInstanceRef.current = map;
 
     // Add Omaha aviation landmarks
@@ -124,7 +191,7 @@ export const AirspaceMap: React.FC<AirspaceMapProps> = ({
       });
   }, []);
 
-  // Switch OpenStreetMap Tile Styles
+  // Switch Basemap Styles (CARTO with API key support + OSM)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -133,25 +200,31 @@ export const AirspaceMap: React.FC<AirspaceMapProps> = ({
       map.removeLayer(baseTileLayerRef.current);
     }
 
-    let url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-    let attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+    const keyParam = cartoKey ? `?api_key=${cartoKey}` : '';
+    let url = `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${keyParam}`;
+    let attribution = '&copy; <a href="https://carto.com/">CARTO</a> &copy; OpenStreetMap contributors';
+    let subdomains = 'abcd';
 
-    if (osmStyle === 'dark') {
-      url = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_labels_under/{z}/{x}/{y}{r}.png';
+    if (mapStyle === 'carto_voyager') {
+      url = `https://{s}.basemaps.cartocdn.com/rastertiles/voyager_labels_under/{z}/{x}/{y}{r}.png${keyParam}`;
       attribution = '&copy; <a href="https://carto.com/">CARTO</a> &copy; OpenStreetMap contributors';
-    } else if (osmStyle === 'humanitarian') {
-      url = 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png';
-      attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, HOT';
+    } else if (mapStyle === 'carto_positron') {
+      url = `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png${keyParam}`;
+      attribution = '&copy; <a href="https://carto.com/">CARTO</a> &copy; OpenStreetMap contributors';
+    } else if (mapStyle === 'osm_standard') {
+      url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+      attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+      subdomains = 'abc';
     }
 
     const tile = L.tileLayer(url, {
       attribution,
       maxZoom: 19,
-      subdomains: osmStyle === 'dark' ? 'abcd' : 'abc',
+      subdomains,
     }).addTo(map);
 
     baseTileLayerRef.current = tile;
-  }, [osmStyle]);
+  }, [mapStyle, cartoKey]);
 
   // Update Weather Layer
   useEffect(() => {
@@ -386,44 +459,77 @@ export const AirspaceMap: React.FC<AirspaceMapProps> = ({
     <div className={`relative w-full ${heightClass} rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-inner`}>
       <div ref={mapContainerRef} className="w-full h-full z-0" />
       
-      {/* OpenStreetMap API Layer Selector */}
+      {/* Basemap & CARTO Engine Selector */}
       <div className="absolute top-3 left-3 z-10 bg-slate-950/90 backdrop-blur-md border border-slate-800/90 rounded-lg p-1 shadow-xl flex items-center gap-1 text-[11px] font-mono">
-        <span className="text-slate-400 px-1.5 uppercase font-semibold text-[10px] hidden sm:inline">OSM API:</span>
+        <span className="text-slate-400 px-1.5 uppercase font-semibold text-[10px] hidden sm:inline">Basemap:</span>
         <button
           type="button"
-          onClick={() => setOsmStyle('standard')}
+          onClick={() => setMapStyle('carto_dark')}
           className={`px-2 py-0.5 rounded transition-colors ${
-            osmStyle === 'standard'
+            mapStyle === 'carto_dark'
               ? 'bg-cyan-500 text-slate-950 font-bold'
               : 'text-slate-400 hover:text-white'
           }`}
-          title="Official OpenStreetMap Standard Tiles (tile.openstreetmap.org)"
+          title="CARTO Dark Matter (Night Surveillance Base)"
         >
-          OSM Standard
+          CARTO Dark
         </button>
         <button
           type="button"
-          onClick={() => setOsmStyle('dark')}
+          onClick={() => setMapStyle('carto_voyager')}
           className={`px-2 py-0.5 rounded transition-colors ${
-            osmStyle === 'dark'
+            mapStyle === 'carto_voyager'
               ? 'bg-cyan-500 text-slate-950 font-bold'
               : 'text-slate-400 hover:text-white'
           }`}
-          title="OpenStreetMap Dark Cartography"
+          title="CARTO Voyager Tactical with Landmarks"
         >
-          OSM Dark
+          CARTO Voyager
         </button>
         <button
           type="button"
-          onClick={() => setOsmStyle('humanitarian')}
+          onClick={() => setMapStyle('carto_positron')}
           className={`px-2 py-0.5 rounded transition-colors ${
-            osmStyle === 'humanitarian'
+            mapStyle === 'carto_positron'
               ? 'bg-cyan-500 text-slate-950 font-bold'
               : 'text-slate-400 hover:text-white'
           }`}
-          title="OpenStreetMap Humanitarian Style (HOT)"
+          title="CARTO Positron Light"
         >
-          OSM HOT
+          CARTO Light
+        </button>
+        <button
+          type="button"
+          onClick={() => setMapStyle('osm_standard')}
+          className={`px-2 py-0.5 rounded transition-colors ${
+            mapStyle === 'osm_standard'
+              ? 'bg-cyan-500 text-slate-950 font-bold'
+              : 'text-slate-400 hover:text-white'
+          }`}
+          title="OpenStreetMap Standard Street Base"
+        >
+          OSM
+        </button>
+        {cartoKey && (
+          <span className="text-[9px] font-mono text-emerald-400 bg-emerald-950/80 border border-emerald-800/60 px-1.5 py-0.5 rounded ml-1 hidden md:inline">
+            CARTO Key Connected
+          </span>
+        )}
+
+        <div className="h-3.5 w-px bg-slate-800 mx-1" />
+        <button
+          type="button"
+          onClick={handleLocateUser}
+          disabled={isGpsLoading}
+          className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-950/70 border border-emerald-800/80 text-emerald-300 hover:text-white transition-colors disabled:opacity-50"
+          title="Locate my position via device GPS and center airspace map"
+        >
+          {isGpsLoading ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <Navigation className="w-3 h-3" />
+          )}
+          <span>{isGpsLoading ? 'Locating...' : 'Locate Me'}</span>
         </button>
       </div>
 

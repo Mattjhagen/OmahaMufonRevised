@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Send, MessageSquare, AlertTriangle, CloudSun, Shield, User } from 'lucide-react';
 import { ChatMessage } from '../types';
 
@@ -15,6 +15,12 @@ export const FieldDispatchView: React.FC<FieldDispatchViewProps> = ({
   const [role, setRole] = useState('Field Investigator');
   const [messageText, setMessageText] = useState('');
   const [selectedTag, setSelectedTag] = useState<'alert' | 'sighting' | 'weather' | 'general'>('general');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll chat to bottom when new messages arrive
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,6 +115,7 @@ export const FieldDispatchView: React.FC<FieldDispatchViewProps> = ({
                 </div>
               );
             })}
+            <div ref={messagesEndRef} />
           </div>
 
           {/* Quick Input Bar */}
