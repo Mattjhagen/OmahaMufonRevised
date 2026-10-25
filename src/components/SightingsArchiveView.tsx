@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Search, Eye, Camera, MapPin, Calendar, Clock, Compass, ArrowRight, ShieldAlert, CheckCircle2, Download } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Search, Eye, Camera, MapPin, Calendar, Clock, Compass, ArrowRight, ShieldAlert, CheckCircle2, Download, BarChart2, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { SightingReport, SightingType } from '../types';
+import { SightingsD3Analytics, FilterCriteria, getSightingSector, OMAHA_SECTORS } from './SightingsD3Analytics';
 
 interface SightingsArchiveViewProps {
   sightings: SightingReport[];
@@ -29,26 +30,47 @@ export const SightingsArchiveView: React.FC<SightingsArchiveViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'correlated' | 'no_match'>('all');
-  const [inspectSighting, setInspectSighting] = useState<SightingReport | null>(null);
-
-  const filteredSightings = sightings.filter((s) => {
-    const matchesSearch =
-      s.reporter_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.location_text.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.type.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesType = selectedType === 'all' || s.type === selectedType;
-
-    const matchesStatus =
-      statusFilter === 'all'
-        ? true
-        : statusFilter === 'correlated'
-        ? s.correlation_status === 'correlated'
-        : s.correlation_status === 'no_match';
-
-    return matchesSearch && matchesType && matchesStatus;
+  const [showAnalytics, setShowAnalytics] = useState<boolean>(true);
+  const [d3Filter, setD3Filter] = useState<FilterCriteria>({
+    hour: null,
+    sector: null,
+    timeWindow: null,
   });
+
+  const filteredSightings = useMemo(() => {
+    return sightings.filter((s) => {
+      const matchesSearch =
+        s.reporter_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        s.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        s.location_text.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        s.type.toLowerCase().includes(searchTerm.toLowerCase());
+
+      const matchesType = selectedType === 'all' || s.type === selectedType;
+
+      const matchesStatus =
+        statusFilter === 'all'
+          ? true
+          : statusFilter === 'correlated'
+          ? s.correlation_status === 'correlated'
+          : s.correlation_status === 'no_match';
+
+      // D3 hour filter (matches local hour or UTC)
+      let matchesHour = true;
+      if (d3Filter.hour !== null && d3Filter.hour !== undefined) {
+        const d = new Date(s.sighting_time);
+        matchesHour = d.getHours() === d3Filter.hour;
+      }
+
+      // D3 sector filter
+      let matchesSector = true;
+      if (d3Filter.sector) {
+        const sector = getSightingSector(s.lat, s.lon);
+        matchesSector = sector.id === d3Filter.sector;
+      }
+
+      return matchesSearch && matchesType && matchesStatus && matchesHour && matchesSector;
+    });
+  }, [sightings, searchTerm, selectedType, statusFilter, d3Filter]);
 
   const handleDownloadCsv = () => {
     const exportList = filteredSightings.length > 0 ? filteredSightings : sightings;
@@ -133,7 +155,20 @@ export const SightingsArchiveView: React.FC<SightingsArchiveViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5 shrink-0">
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <button
+            onClick={() => setShowAnalytics(!showAnalytics)}
+            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-mono rounded-lg transition-colors shadow-sm ${
+              showAnalytics
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                : 'bg-slate-950 border border-slate-800 text-slate-300 hover:text-white'
+            }`}
+            title="Toggle D3.js Historical Telemetry & Spatial Clustering Visualizer"
+          >
+            <BarChart2 className="w-3.5 h-3.5 text-cyan-400" />
+            <span>D3 Analytics {showAnalytics ? '▲' : '▼'}</span>
+          </button>
+
           <button
             onClick={handleDownloadCsv}
             className="flex items-center gap-2 px-3.5 py-2 text-xs font-mono text-slate-200 bg-slate-950 border border-slate-800 hover:border-slate-700 hover:text-white rounded-lg transition-colors shadow-sm"
@@ -151,6 +186,45 @@ export const SightingsArchiveView: React.FC<SightingsArchiveViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* D3.js Interactive Visualization Module */}
+      {showAnalytics && (
+        <SightingsD3Analytics
+          sightings={sightings}
+          activeFilter={d3Filter}
+          onFilterChange={setD3Filter}
+        />
+      )}
+
+      {/* Active D3 Filter Notice Banner */}
+      {(d3Filter.hour !== null || d3Filter.sector !== null) && (
+        <div className="flex items-center justify-between p-3 px-4 bg-cyan-950/40 border border-cyan-700/50 rounded-xl text-xs font-mono">
+          <div className="flex items-center gap-2.5">
+            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+            <span className="text-cyan-300 font-bold">D3 FILTER APPLIED:</span>
+            {d3Filter.hour !== null && d3Filter.hour !== undefined && (
+              <span className="px-2 py-0.5 rounded bg-cyan-900/60 border border-cyan-600/60 text-cyan-200">
+                Hour Window: {String(d3Filter.hour).padStart(2, '0')}:00 -{' '}
+                {String((d3Filter.hour + 1) % 24).padStart(2, '0')}:00
+              </span>
+            )}
+            {d3Filter.sector && (
+              <span className="px-2 py-0.5 rounded bg-cyan-900/60 border border-cyan-600/60 text-cyan-200">
+                Sector: {OMAHA_SECTORS.find((s) => s.id === d3Filter.sector)?.name}
+              </span>
+            )}
+            <span className="text-slate-400">({filteredSightings.length} matching reports)</span>
+          </div>
+
+          <button
+            onClick={() => setD3Filter({ hour: null, sector: null, timeWindow: null })}
+            className="flex items-center gap-1 px-2.5 py-1 text-slate-300 hover:text-white bg-slate-900 border border-slate-700 hover:border-slate-600 rounded transition-colors text-[11px]"
+          >
+            <X className="w-3.5 h-3.5" />
+            <span>Clear D3 Filter</span>
+          </button>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 sm:p-5 space-y-4">

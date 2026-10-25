@@ -111,3 +111,22 @@ export interface ReceiverStationInfo {
   status: 'ONLINE' | 'DEGRADED' | 'OFFLINE';
   lastPing: string;
 }
+
+export interface RssFeedItem {
+  id: string;
+  title: string;
+  link: string;
+  pubDate: string;
+  source: string;
+  author?: string;
+  summary: string;
+  content?: string;
+  classification?: 'UNCLASSIFIED' | 'RESTRICTED' | 'DECLASSIFIED' | 'FOUO';
+  hasCoordinates: boolean;
+  lat?: number;
+  lon?: number;
+  locationName?: string;
+  elevationFt?: number;
+  tags?: string[];
+}
+

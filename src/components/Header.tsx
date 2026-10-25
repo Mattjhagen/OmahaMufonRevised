@@ -2,8 +2,8 @@ import React from 'react';
 import { Radio, Download, Bell, BellOff, Volume2, VolumeX } from 'lucide-react';
 
 interface HeaderProps {
-  activeTab: 'radar' | 'rewind' | 'sightings' | 'dispatch' | 'station';
-  setActiveTab: (tab: 'radar' | 'rewind' | 'sightings' | 'dispatch' | 'station') => void;
+  activeTab: 'radar' | 'rewind' | 'sightings' | 'dispatch' | 'google-chat' | 'station';
+  setActiveTab: (tab: 'radar' | 'rewind' | 'sightings' | 'dispatch' | 'google-chat' | 'station') => void;
   onOpenReportModal: () => void;
   liveCount: number;
   receiverStatus: 'ONLINE' | 'DEGRADED' | 'OFFLINE';
@@ -46,8 +46,8 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
 
-        {/* Zone 2: 4-5 concise single-line navigation links */}
-        <nav className="hidden lg:flex items-center gap-8 text-sm font-medium text-slate-400">
+        {/* Zone 2: concise single-line navigation links */}
+        <nav className="hidden lg:flex items-center gap-6 xl:gap-8 text-sm font-medium text-slate-400">
           <button
             onClick={() => setActiveTab('radar')}
             className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 ${
@@ -77,6 +77,19 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             Sighting Archive
+          </button>
+          <button
+            onClick={() => setActiveTab('google-chat')}
+            className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 flex items-center gap-1.5 ${
+              activeTab === 'google-chat'
+                ? 'text-cyan-400 border-cyan-400 font-semibold'
+                : 'border-transparent hover:text-slate-200'
+            }`}
+          >
+            <span>Google Chat</span>
+            <span className="text-[9px] font-mono font-bold px-1 py-0.2 rounded bg-cyan-950 border border-cyan-800 text-cyan-300">
+              Workspace
+            </span>
           </button>
           <button
             onClick={() => setActiveTab('dispatch')}
@@ -192,6 +205,13 @@ export const Header: React.FC<HeaderProps> = ({
             className={`whitespace-nowrap shrink-0 px-2 py-1 ${activeTab === 'sightings' ? 'text-cyan-400 font-semibold' : ''}`}
           >
             Sighting Archive
+          </button>
+          <button
+            onClick={() => setActiveTab('google-chat')}
+            className={`whitespace-nowrap shrink-0 px-2 py-1 flex items-center gap-1 ${activeTab === 'google-chat' ? 'text-cyan-400 font-semibold' : ''}`}
+          >
+            <span>Google Chat</span>
+            <span className="text-[8px] font-mono px-1 rounded bg-cyan-950 text-cyan-300">WS</span>
           </button>
           <button
             onClick={() => setActiveTab('dispatch')}

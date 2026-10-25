@@ -4,6 +4,7 @@ import { LiveRadarView } from './components/LiveRadarView';
 import { RewindCorrelateView } from './components/RewindCorrelateView';
 import { SightingsArchiveView } from './components/SightingsArchiveView';
 import { FieldDispatchView } from './components/FieldDispatchView';
+import { GoogleChatView } from './components/GoogleChatView';
 import { StationInfoView } from './components/StationInfoView';
 import { ReportSightingModal } from './components/ReportSightingModal';
 import { PWAPromptModal } from './components/PWAPromptModal';
@@ -14,7 +15,7 @@ import { usePWAInstall } from './hooks/usePWAInstall';
 import { useNotifications } from './hooks/useNotifications';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'radar' | 'rewind' | 'sightings' | 'dispatch' | 'station'>('radar');
+  const [activeTab, setActiveTab] = useState<'radar' | 'rewind' | 'sightings' | 'dispatch' | 'google-chat' | 'station'>('radar');
   const [aircraft, setAircraft] = useState<Aircraft[]>(INITIAL_AIRCRAFT);
   const [sightings, setSightings] = useState<SightingReport[]>(INITIAL_SIGHTINGS);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
@@ -247,6 +248,13 @@ export default function App() {
           <SightingsArchiveView
             sightings={sightings}
             onSelectForRewind={handleSelectSightingForRewind}
+            onOpenReportModal={() => setIsReportModalOpen(true)}
+          />
+        )}
+
+        {activeTab === 'google-chat' && (
+          <GoogleChatView
+            sightings={sightings}
             onOpenReportModal={() => setIsReportModalOpen(true)}
           />
         )}
