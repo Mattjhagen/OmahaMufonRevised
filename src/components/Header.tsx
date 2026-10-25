@@ -2,8 +2,8 @@ import React from 'react';
 import { Radio, Download, Bell, BellOff, Volume2, VolumeX } from 'lucide-react';
 
 interface HeaderProps {
-  activeTab: 'radar' | 'rewind' | 'sightings' | 'dispatch' | 'google-chat' | 'station';
-  setActiveTab: (tab: 'radar' | 'rewind' | 'sightings' | 'dispatch' | 'google-chat' | 'station') => void;
+  activeTab: 'radar' | 'rewind' | 'sightings' | 'dispatch' | 'sdr' | 'archive' | 'station';
+  setActiveTab: (tab: 'radar' | 'rewind' | 'sightings' | 'dispatch' | 'sdr' | 'archive' | 'station') => void;
   onOpenReportModal: () => void;
   liveCount: number;
   receiverStatus: 'ONLINE' | 'DEGRADED' | 'OFFLINE';
@@ -79,16 +79,29 @@ export const Header: React.FC<HeaderProps> = ({
             Sighting Archive
           </button>
           <button
-            onClick={() => setActiveTab('google-chat')}
+            onClick={() => setActiveTab('archive')}
             className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 flex items-center gap-1.5 ${
-              activeTab === 'google-chat'
+              activeTab === 'archive'
+                ? 'text-amber-400 border-amber-400 font-semibold'
+                : 'border-transparent hover:text-slate-200'
+            }`}
+          >
+            <span>Gov Files</span>
+            <span className="text-[9px] font-mono font-bold px-1 py-0.2 rounded bg-amber-950 border border-amber-800 text-amber-300">
+              Federal
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('sdr')}
+            className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 flex items-center gap-1.5 ${
+              activeTab === 'sdr'
                 ? 'text-cyan-400 border-cyan-400 font-semibold'
                 : 'border-transparent hover:text-slate-200'
             }`}
           >
-            <span>Google Chat</span>
-            <span className="text-[9px] font-mono font-bold px-1 py-0.2 rounded bg-cyan-950 border border-cyan-800 text-cyan-300">
-              Workspace
+            <span>Live SDR</span>
+            <span className="text-[9px] font-mono font-bold px-1 py-0.2 rounded bg-purple-950 border border-purple-800 text-purple-300">
+              VHF/UHF
             </span>
           </button>
           <button
@@ -207,11 +220,18 @@ export const Header: React.FC<HeaderProps> = ({
             Sighting Archive
           </button>
           <button
-            onClick={() => setActiveTab('google-chat')}
-            className={`whitespace-nowrap shrink-0 px-2 py-1 flex items-center gap-1 ${activeTab === 'google-chat' ? 'text-cyan-400 font-semibold' : ''}`}
+            onClick={() => setActiveTab('archive')}
+            className={`whitespace-nowrap shrink-0 px-2 py-1 flex items-center gap-1 ${activeTab === 'archive' ? 'text-amber-400 font-semibold' : ''}`}
           >
-            <span>Google Chat</span>
-            <span className="text-[8px] font-mono px-1 rounded bg-cyan-950 text-cyan-300">WS</span>
+            <span>Gov Files</span>
+            <span className="text-[8px] font-mono px-1 rounded bg-amber-950 text-amber-300">FED</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('sdr')}
+            className={`whitespace-nowrap shrink-0 px-2 py-1 flex items-center gap-1 ${activeTab === 'sdr' ? 'text-cyan-400 font-semibold' : ''}`}
+          >
+            <span>Live SDR</span>
+            <span className="text-[8px] font-mono px-1 rounded bg-purple-950 text-purple-300">VHF</span>
           </button>
           <button
             onClick={() => setActiveTab('dispatch')}

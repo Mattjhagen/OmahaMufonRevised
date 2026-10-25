@@ -4,8 +4,9 @@ import { LiveRadarView } from './components/LiveRadarView';
 import { RewindCorrelateView } from './components/RewindCorrelateView';
 import { SightingsArchiveView } from './components/SightingsArchiveView';
 import { FieldDispatchView } from './components/FieldDispatchView';
-import { GoogleChatView } from './components/GoogleChatView';
+import { LiveSDRView } from './components/LiveSDRView';
 import { StationInfoView } from './components/StationInfoView';
+import { ArchiveView } from './components/ArchiveView';
 import { ReportSightingModal } from './components/ReportSightingModal';
 import { PWAPromptModal } from './components/PWAPromptModal';
 import { INITIAL_AIRCRAFT, INITIAL_SIGHTINGS, INITIAL_CHAT, OMAHA_STATION } from './data/initialData';
@@ -15,7 +16,7 @@ import { usePWAInstall } from './hooks/usePWAInstall';
 import { useNotifications } from './hooks/useNotifications';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'radar' | 'rewind' | 'sightings' | 'dispatch' | 'google-chat' | 'station'>('radar');
+  const [activeTab, setActiveTab] = useState<'radar' | 'rewind' | 'sightings' | 'dispatch' | 'sdr' | 'archive' | 'station'>('radar');
   const [aircraft, setAircraft] = useState<Aircraft[]>(INITIAL_AIRCRAFT);
   const [sightings, setSightings] = useState<SightingReport[]>(INITIAL_SIGHTINGS);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
@@ -45,7 +46,7 @@ export default function App() {
     }, 4000);
   };
 
-  // Attempt to fetch from local/live backend if running; fallback to simulated live telemetry
+  // Fetch live aircraft from backend
   useEffect(() => {
     let isMounted = true;
 
@@ -88,54 +89,141 @@ export default function App() {
     };
   }, []);
 
-  // Handle Sighting submission
-  const handleReportSubmit = (newReportData: Omit<SightingReport, 'id' | 'created_at'>) => {
-    const newId = sightings.length > 0 ? Math.max(...sightings.map((s) => s.id)) + 1 : 101;
-    const newReport: SightingReport = {
-      ...newReportData,
-      id: newId,
-      created_at: new Date().toISOString(),
+  // Fetch sightings from backend
+  useEffect(() => {
+    const fetchSightings = async () => {
+      try {
+        const res = await fetch('/api/sightings');
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            setSightings(data);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch sightings:', err);
+      }
     };
 
-    setSightings([newReport, ...sightings]);
-    showToast(`Sighting Report #${newId} logged successfully. Ready for correlation.`, 'success');
+    fetchSightings();
+  }, []);
 
-    // Trigger mobile push & in-app notification
-    sendNotification(
-      `New UAP Sighting #${newId}: ${newReportData.type}`,
-      `Observed near ${newReportData.location_text} (Bearing: ${newReportData.bearing}°)`,
-      'sighting',
-      '/#sightings'
-    );
+  // Fetch and poll chat messages from backend
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchChat = async () => {
+      try {
+        const res = await fetch('/api/chat');
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && isMounted) {
+            // Transform backend chat format to frontend format
+            const messages: ChatMessage[] = data.map((msg: any) => ({
+              id: msg.id,
+              name: msg.name || 'Anonymous',
+              role: msg.role || 'Investigator',
+              message: msg.message,
+              timestamp: msg.timestamp,
+              tag: (msg.tag as any) || 'general',
+            }));
+            setChatMessages(messages);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch chat:', err);
+      }
+    };
+
+    fetchChat();
+    const interval = setInterval(fetchChat, 5000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Handle Sighting submission
+  const handleReportSubmit = async (newReportData: Omit<SightingReport, 'id' | 'created_at'>) => {
+    try {
+      const res = await fetch('/api/sightings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reporter_name: newReportData.reporter_name,
+          sighting_time: newReportData.sighting_time,
+          lat: newReportData.lat,
+          lon: newReportData.lon,
+          description: newReportData.description,
+          location_text: newReportData.location_text,
+          bearing: newReportData.bearing,
+          elevation: newReportData.elevation,
+          duration: newReportData.duration,
+          type: newReportData.type,
+          reporter_role: newReportData.reporter_role,
+        }),
+      });
+
+      if (res.ok) {
+        const savedReport = await res.json();
+        // Refresh sightings list
+        const listRes = await fetch('/api/sightings');
+        if (listRes.ok) {
+          const updatedSightings = await listRes.json();
+          setSightings(updatedSightings);
+        }
+
+        showToast(`Sighting Report #${savedReport.id || 'new'} logged successfully. Ready for correlation.`, 'success');
+
+        // Trigger mobile push & in-app notification
+        sendNotification(
+          `New UAP Sighting: ${newReportData.type}`,
+          `Observed near ${newReportData.location_text} (Bearing: ${newReportData.bearing}°)`,
+          'sighting',
+          '/#sightings'
+        );
+      } else {
+        showToast('Failed to submit sighting report.', 'info');
+      }
+    } catch (err) {
+      console.error('Failed to submit sighting:', err);
+      showToast('Network error submitting report.', 'info');
+    }
   };
 
   // Handle Chat message: append to BOTTOM so newest entries show on bottom!
-  const handleSendMessage = (
+  const handleSendMessage = async (
     name: string,
     role: string,
     message: string,
     tag: 'alert' | 'sighting' | 'weather' | 'general'
   ) => {
-    const newMsg: ChatMessage = {
-      id: Date.now(),
-      name,
-      role,
-      message,
-      timestamp: new Date().toISOString(),
-      tag,
-    };
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, role, message, tag }),
+      });
 
-    // Append to bottom (end of array)
-    setChatMessages((prev) => [...prev, newMsg]);
-    showToast('Dispatch logged to investigator frequency.', 'info');
+      if (res.ok) {
+        // Message posted successfully - it will appear via the polling useEffect
+        showToast('Dispatch logged to investigator frequency.', 'info');
 
-    // Trigger mobile push & audio chime for radio dispatches
-    sendNotification(
-      `Radio Dispatch: ${name}`,
-      message,
-      'chat',
-      '/#dispatch'
-    );
+        // Trigger mobile push & audio chime for radio dispatches
+        sendNotification(
+          `Radio Dispatch: ${name}`,
+          message,
+          'chat',
+          '/#dispatch'
+        );
+      } else {
+        showToast('Failed to send message.', 'info');
+      }
+    } catch (err) {
+      console.error('Failed to send chat message:', err);
+      showToast('Network error sending message.', 'info');
+    }
   };
 
   // Jump to Rewind tab with specific sighting selected
@@ -252,9 +340,8 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'google-chat' && (
-          <GoogleChatView
-            sightings={sightings}
+        {activeTab === 'sdr' && (
+          <LiveSDRView
             onOpenReportModal={() => setIsReportModalOpen(true)}
           />
         )}
@@ -267,6 +354,8 @@ export default function App() {
         )}
 
         {activeTab === 'station' && <StationInfoView />}
+
+        {activeTab === 'archive' && <ArchiveView />}
       </main>
 
       {/* Report Sighting Modal */}
