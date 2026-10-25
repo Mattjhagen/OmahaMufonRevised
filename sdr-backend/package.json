@@ -1,0 +1,14 @@
+{
+  "name": "sdr-backend",
+  "version": "1.0.0",
+  "description": "RTL-SDR streaming backend for Live SDR tab",
+  "main": "sdr-server.js",
+  "scripts": {
+    "start": "node sdr-server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.0",
+    "ws": "^8.14.0",
+    "cors": "^2.8.5"
+  }
+}

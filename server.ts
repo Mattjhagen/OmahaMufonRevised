@@ -2,7 +2,9 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 import dotenv from 'dotenv';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 
 dotenv.config();
 
@@ -505,6 +507,212 @@ COORDINATES: 43.8500° N, 82.4500° W (Lake Huron Central Airspace).`,
         items: curatedWarGovFeed,
       },
     });
+  });
+
+  // Live Backend Proxy Endpoints → :5005 (NEW LOCATION - migrated from :5003)
+  // Aircraft live feed
+  app.get('/api/aircraft/live', async (req, res) => {
+    try {
+      const response = await fetch('http://localhost:5005/api/aircraft/live');
+      if (response.ok) {
+        const data = await response.json();
+        return res.json(data);
+      }
+      return res.status(502).json({ error: 'Live backend unavailable' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Rewind historical aircraft
+  app.get('/api/rewind', async (req, res) => {
+    try {
+      const time = req.query.time || req.query.timestamp; // Accept both 'time' and 'timestamp'
+      const lat = req.query.lat;
+      const lon = req.query.lon;
+      const radius = req.query.radius || '25';
+
+      if (!time || !lat || !lon) {
+        return res.status(400).json({ error: 'time, lat, and lon parameters required' });
+      }
+
+      const params = new URLSearchParams({
+        time: time as string,
+        lat: lat as string,
+        lon: lon as string,
+        radius: radius as string,
+      });
+
+      const response = await fetch(`http://localhost:5005/api/rewind?${params}`);
+      if (response.ok) {
+        const data = await response.json();
+        return res.json(data);
+      }
+      const errorData = await response.json().catch(() => ({ error: 'Rewind backend unavailable' }));
+      return res.status(response.status).json(errorData);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Sightings (GET - list, POST - submit)
+  app.get('/api/sightings', async (req, res) => {
+    try {
+      const response = await fetch('http://localhost:5005/api/sightings');
+      if (response.ok) {
+        const data = await response.json();
+        return res.json(data);
+      }
+      return res.status(502).json({ error: 'Sightings backend unavailable' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/sightings', async (req, res) => {
+    try {
+      const response = await fetch('http://localhost:5005/api/sightings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return res.json(data);
+      }
+      return res.status(502).json({ error: 'Sightings submission failed' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Chat (GET - messages, POST - send)
+  app.get('/api/chat', async (req, res) => {
+    try {
+      const response = await fetch('http://localhost:5005/api/chat');
+      if (response.ok) {
+        const data = await response.json();
+        return res.json(data);
+      }
+      return res.status(502).json({ error: 'Chat backend unavailable' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/chat', async (req, res) => {
+    try {
+      const response = await fetch('http://localhost:5005/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return res.json(data);
+      }
+      return res.status(502).json({ error: 'Chat message failed' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // SDR Backend Proxy Endpoints → :8082 (Custom rtl_fm streaming)
+  app.get('/api/sdr/status', async (req, res) => {
+    try {
+      const response = await fetch('http://localhost:8082/api/status');
+      if (response.ok) {
+        const data = await response.json();
+        return res.json(data);
+      }
+      return res.status(502).json({ error: 'SDR backend unavailable' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/sdr/tune', async (req, res) => {
+    try {
+      const response = await fetch('http://localhost:8082/api/tune', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return res.json(data);
+      }
+      return res.status(502).json({ error: 'SDR tune failed' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/sdr/start', async (req, res) => {
+    try {
+      const response = await fetch('http://localhost:8082/api/start', { method: 'POST' });
+      if (response.ok) {
+        const data = await response.json();
+        return res.json(data);
+      }
+      return res.status(502).json({ error: 'SDR start failed' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/sdr/stop', async (req, res) => {
+    try {
+      const response = await fetch('http://localhost:8082/api/stop', { method: 'POST' });
+      if (response.ok) {
+        const data = await response.json();
+        return res.json(data);
+      }
+      return res.status(502).json({ error: 'SDR stop failed' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/sdr/health', async (req, res) => {
+    try {
+      const response = await fetch('http://localhost:8082/health');
+      if (response.ok) {
+        const data = await response.json();
+        return res.json(data);
+      }
+      return res.status(502).json({ error: 'SDR backend unavailable' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // SDR WebSocket Proxy for audio/spectrum streams
+  app.use('/sdr-ws', createProxyMiddleware({
+    target: 'http://localhost:8082',
+    changeOrigin: true,
+    ws: true, // Enable WebSocket proxying
+    pathRewrite: {
+      '^/sdr-ws': '', // Remove /sdr-ws prefix
+    },
+    logLevel: 'warn',
+  }));
+
+  // Government Archive Files - Static file serving
+  const archivePath = path.join(__dirname, 'UAP_Files', 'archive-extracted');
+  app.use('/archive-files', express.static(archivePath));
+
+  // Archive metadata API
+  app.get('/api/archive/metadata', (req, res) => {
+    try {
+      const metadataPath = path.join(__dirname, 'src', 'data', 'archive_metadata.json');
+      const metadataContent = fs.readFileSync(metadataPath, 'utf-8');
+      const metadata = JSON.parse(metadataContent);
+      res.json(metadata);
+    } catch (err: any) {
+      console.error('Archive metadata error:', err);
+      res.status(500).json({ error: 'Failed to load archive metadata', details: err.message });
+    }
   });
 
   // Setup Vite in development or serve static in production

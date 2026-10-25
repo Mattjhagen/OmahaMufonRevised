@@ -21,11 +21,13 @@
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "firebase": "^13.1.0",
+    "http-proxy-middleware": "^4.2.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
+    "react-router-dom": "^7.18.4",
     "three": "^0.186.1",
     "vite": "^8.3.0"
   },
