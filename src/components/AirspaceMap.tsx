@@ -1,6 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
-import { Aircraft, SightingReport } from '../types';
+import { Aircraft, SightingReport, WeatherLayerType } from '../types';
 
 interface AirspaceMapProps {
   aircraft: Aircraft[];
@@ -11,6 +11,8 @@ interface AirspaceMapProps {
   interactiveSelectCoord?: boolean;
   onSelectCoord?: (lat: number, lon: number) => void;
   heightClass?: string;
+  weatherLayer?: WeatherLayerType;
+  weatherOpacity?: number;
 }
 
 const OMAHA_CENTER: [number, number] = [41.2565, -95.9345];
@@ -24,12 +26,18 @@ export const AirspaceMap: React.FC<AirspaceMapProps> = ({
   interactiveSelectCoord = false,
   onSelectCoord,
   heightClass = 'h-[540px]',
+  weatherLayer = 'none',
+  weatherOpacity = 0.65,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const aircraftLayerRef = useRef<L.LayerGroup | null>(null);
   const sightingLayerRef = useRef<L.LayerGroup | null>(null);
   const landmarksLayerRef = useRef<L.LayerGroup | null>(null);
+  const weatherTileLayerRef = useRef<L.TileLayer | null>(null);
+  const [osmStyle, setOsmStyle] = useState<'standard' | 'dark' | 'humanitarian'>('dark');
+  const [radarTimestamp, setRadarTimestamp] = useState<number | null>(null);
+  const baseTileLayerRef = useRef<L.TileLayer | null>(null);
 
   // Initialize Map
   useEffect(() => {
@@ -39,20 +47,21 @@ export const AirspaceMap: React.FC<AirspaceMapProps> = ({
       center: OMAHA_CENTER,
       zoom: 10,
       minZoom: 7,
-      maxZoom: 16,
+      maxZoom: 19,
       zoomControl: true,
       scrollWheelZoom: true,
     });
 
-    // Dark cartographic tiles
-    L.tileLayer(
+    // High-contrast dark cartographic base
+    const baseTile = L.tileLayer(
       'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_labels_under/{z}/{x}/{y}{r}.png',
       {
-        attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OpenStreetMap',
+        attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OpenStreetMap contributors',
         maxZoom: 19,
         subdomains: 'abcd',
       }
     ).addTo(map);
+    baseTileLayerRef.current = baseTile;
 
     const aircraftGroup = L.layerGroup().addTo(map);
     const sightingGroup = L.layerGroup().addTo(map);
@@ -99,6 +108,100 @@ export const AirspaceMap: React.FC<AirspaceMapProps> = ({
       mapInstanceRef.current = null;
     };
   }, []);
+
+  // Fetch latest RainViewer radar timestamp
+  useEffect(() => {
+    fetch('https://api.rainviewer.com/public/weather-maps.json')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.radar?.past && data.radar.past.length > 0) {
+          const latest = data.radar.past[data.radar.past.length - 1].time;
+          setRadarTimestamp(latest);
+        }
+      })
+      .catch(() => {
+        setRadarTimestamp(Math.floor(Date.now() / 1000) - 600);
+      });
+  }, []);
+
+  // Switch OpenStreetMap Tile Styles
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (baseTileLayerRef.current) {
+      map.removeLayer(baseTileLayerRef.current);
+    }
+
+    let url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    let attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
+    if (osmStyle === 'dark') {
+      url = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_labels_under/{z}/{x}/{y}{r}.png';
+      attribution = '&copy; <a href="https://carto.com/">CARTO</a> &copy; OpenStreetMap contributors';
+    } else if (osmStyle === 'humanitarian') {
+      url = 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png';
+      attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, HOT';
+    }
+
+    const tile = L.tileLayer(url, {
+      attribution,
+      maxZoom: 19,
+      subdomains: osmStyle === 'dark' ? 'abcd' : 'abc',
+    }).addTo(map);
+
+    baseTileLayerRef.current = tile;
+  }, [osmStyle]);
+
+  // Update Weather Layer
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (weatherTileLayerRef.current) {
+      map.removeLayer(weatherTileLayerRef.current);
+      weatherTileLayerRef.current = null;
+    }
+
+    if (weatherLayer === 'none') return;
+
+    let tileUrl = '';
+    let attribution = '';
+
+    if (weatherLayer === 'doppler' && radarTimestamp) {
+      tileUrl = `https://tilecache.rainviewer.com/v2/radar/${radarTimestamp}/256/{z}/{x}/{y}/2/1_1.png`;
+      attribution = 'Weather &copy; RainViewer / NOAA NEXRAD';
+    } else if (weatherLayer === 'clouds') {
+      tileUrl = `https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=9de243494c0b295cca9337e1e96b00e2`;
+      attribution = 'Cloud Cover &copy; OpenWeatherMap';
+    } else if (weatherLayer === 'precipitation') {
+      tileUrl = `https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=9de243494c0b295cca9337e1e96b00e2`;
+      attribution = 'Precipitation &copy; OpenWeatherMap';
+    } else if (weatherLayer === 'wind') {
+      tileUrl = `https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=9de243494c0b295cca9337e1e96b00e2`;
+      attribution = 'Wind &copy; OpenWeatherMap';
+    } else if (weatherLayer === 'temp') {
+      tileUrl = `https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=9de243494c0b295cca9337e1e96b00e2`;
+      attribution = 'Temperature &copy; OpenWeatherMap';
+    }
+
+    if (tileUrl) {
+      const tileLayer = L.tileLayer(tileUrl, {
+        opacity: weatherOpacity,
+        zIndex: 10,
+        attribution,
+      });
+      tileLayer.addTo(map);
+      weatherTileLayerRef.current = tileLayer;
+    }
+
+    return () => {
+      if (map && weatherTileLayerRef.current) {
+        map.removeLayer(weatherTileLayerRef.current);
+        weatherTileLayerRef.current = null;
+      }
+    };
+  }, [weatherLayer, weatherOpacity, radarTimestamp]);
 
   // Click handler for coordinate selection
   useEffect(() => {
@@ -283,6 +386,47 @@ export const AirspaceMap: React.FC<AirspaceMapProps> = ({
     <div className={`relative w-full ${heightClass} rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-inner`}>
       <div ref={mapContainerRef} className="w-full h-full z-0" />
       
+      {/* OpenStreetMap API Layer Selector */}
+      <div className="absolute top-3 left-3 z-10 bg-slate-950/90 backdrop-blur-md border border-slate-800/90 rounded-lg p-1 shadow-xl flex items-center gap-1 text-[11px] font-mono">
+        <span className="text-slate-400 px-1.5 uppercase font-semibold text-[10px] hidden sm:inline">OSM API:</span>
+        <button
+          type="button"
+          onClick={() => setOsmStyle('standard')}
+          className={`px-2 py-0.5 rounded transition-colors ${
+            osmStyle === 'standard'
+              ? 'bg-cyan-500 text-slate-950 font-bold'
+              : 'text-slate-400 hover:text-white'
+          }`}
+          title="Official OpenStreetMap Standard Tiles (tile.openstreetmap.org)"
+        >
+          OSM Standard
+        </button>
+        <button
+          type="button"
+          onClick={() => setOsmStyle('dark')}
+          className={`px-2 py-0.5 rounded transition-colors ${
+            osmStyle === 'dark'
+              ? 'bg-cyan-500 text-slate-950 font-bold'
+              : 'text-slate-400 hover:text-white'
+          }`}
+          title="OpenStreetMap Dark Cartography"
+        >
+          OSM Dark
+        </button>
+        <button
+          type="button"
+          onClick={() => setOsmStyle('humanitarian')}
+          className={`px-2 py-0.5 rounded transition-colors ${
+            osmStyle === 'humanitarian'
+              ? 'bg-cyan-500 text-slate-950 font-bold'
+              : 'text-slate-400 hover:text-white'
+          }`}
+          title="OpenStreetMap Humanitarian Style (HOT)"
+        >
+          OSM HOT
+        </button>
+      </div>
+
       {/* Precision Map HUD Legend (clean unboxed typographic elements) */}
       <div className="absolute top-3 right-3 z-10 bg-slate-950/90 backdrop-blur-md border border-slate-800/90 rounded-lg px-3.5 py-2.5 shadow-xl text-xs font-mono text-slate-300 pointer-events-none">
         <div className="text-[11px] font-semibold text-slate-200 mb-1.5 uppercase tracking-wider">
@@ -305,6 +449,12 @@ export const AirspaceMap: React.FC<AirspaceMapProps> = ({
             <div className="flex items-center gap-2 pt-1 border-t border-slate-800">
               <span className="w-2.5 h-2.5 rounded-full bg-orange-500"></span>
               <span className="text-orange-400">Sighting & Radius ({searchRadiusMiles}mi)</span>
+            </div>
+          )}
+          {weatherLayer !== 'none' && (
+            <div className="flex items-center gap-2 pt-1 border-t border-slate-800">
+              <span className="w-2.5 h-2.5 rounded-sm bg-sky-400"></span>
+              <span className="text-sky-300 capitalize">OpenWeather: {weatherLayer} Active</span>
             </div>
           )}
         </div>

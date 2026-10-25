@@ -140,6 +140,8 @@ export default function App() {
           <LiveRadarView
             aircraft={aircraft}
             onSelectForRewind={() => setActiveTab('rewind')}
+            chatMessages={chatMessages}
+            onSendMessage={handleSendMessage}
           />
         )}
 

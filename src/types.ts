@@ -69,6 +69,31 @@ export interface ChatMessage {
   message: string;
   timestamp: string;
   tag?: 'alert' | 'sighting' | 'weather' | 'general';
+  sighting_id?: number;
+  coordinates?: { lat: number; lon: number };
+}
+
+export type WeatherLayerType = 'none' | 'doppler' | 'clouds' | 'precipitation' | 'wind' | 'temp';
+
+export interface AtmosphericData {
+  source: string;
+  temp: number;
+  feels_like: number;
+  temp_min?: number;
+  temp_max?: number;
+  pressure: number;
+  humidity: number;
+  visibility_miles: number;
+  wind_speed_mph: number;
+  wind_deg: number;
+  cloud_cover_percent: number;
+  cloud_ceiling_ft?: string;
+  condition: string;
+  description: string;
+  dew_point: number;
+  inversion_risk: string;
+  astronomical_seeing: string;
+  timestamp: string;
 }
 
 export interface ReceiverStationInfo {

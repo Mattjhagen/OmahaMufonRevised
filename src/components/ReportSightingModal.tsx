@@ -40,6 +40,24 @@ export const ReportSightingModal: React.FC<ReportSightingModalProps> = ({
   const [duration, setDuration] = useState('1-2 minutes');
   const [type, setType] = useState<SightingType>('Triangle');
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [isGeocoding, setIsGeocoding] = useState(false);
+
+  const fetchOsmAddress = async (targetLat: number, targetLon: number) => {
+    setIsGeocoding(true);
+    try {
+      const res = await fetch(`/api/osm/reverse?lat=${targetLat}&lon=${targetLon}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.display_name) {
+          setLocationText(data.display_name);
+        }
+      }
+    } catch (err) {
+      console.warn('OSM reverse geocode error:', err);
+    } finally {
+      setIsGeocoding(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -169,9 +187,21 @@ export const ReportSightingModal: React.FC<ReportSightingModalProps> = ({
           {/* Location Text & Lat/Lon Coordinates */}
           <div className="space-y-2">
             <div>
-              <label className="text-xs font-mono uppercase text-slate-400 block mb-1">
-                Observation Location Description
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-mono uppercase text-slate-400">
+                  Observation Location Description
+                </label>
+                <button
+                  type="button"
+                  disabled={isGeocoding}
+                  onClick={() => fetchOsmAddress(lat, lon)}
+                  className="text-[11px] font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-1 disabled:opacity-50"
+                  title="Reverse geocode coordinates using OpenStreetMap Nominatim API"
+                >
+                  <MapPin className="w-3 h-3" />
+                  <span>{isGeocoding ? 'Querying OSM API...' : 'Lookup with OpenStreetMap API'}</span>
+                </button>
+              </div>
               <input
                 type="text"
                 value={locationText}
