@@ -46,6 +46,18 @@ export const ReportSightingModal: React.FC<ReportSightingModalProps> = ({
 
   const { requestLocation, loading: isGpsLoading, accuracy: gpsAccuracy } = useGeolocation();
 
+  // Calculate date limits: 30 days back, up to now
+  const getDateLimits = () => {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    return {
+      min: thirtyDaysAgo.toISOString().slice(0, 16),
+      max: now.toISOString().slice(0, 16)
+    };
+  };
+
+  const { min: minDateTime, max: maxDateTime } = getDateLimits();
+
   const handleAcquireGPS = async () => {
     setGpsStatus('Acquiring satellite lock...');
     const result = await requestLocation();
@@ -181,9 +193,14 @@ export const ReportSightingModal: React.FC<ReportSightingModalProps> = ({
                 type="datetime-local"
                 required
                 value={sightingTime}
+                min={minDateTime}
+                max={maxDateTime}
                 onChange={(e) => setSightingTime(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3.5 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500"
               />
+              <p className="text-xs text-slate-500 mt-1">
+                Backdated reports up to 30 days are supported. Correlation runs against archived ADS-B data at the specified time.
+              </p>
             </div>
             <div>
               <label className="text-xs font-mono uppercase text-slate-400 block mb-1">

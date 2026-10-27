@@ -47,3 +47,20 @@
   margin: 12px 14px !important;
   line-height: 1.4 !important;
 }
+
+/* Helicopter rotor animation */
+@keyframes rotor-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Pause animations when tab is hidden (performance) */
+@media (prefers-reduced-motion: no-preference) {
+  .custom-aircraft-marker {
+    animation-play-state: running;
+  }
+}

@@ -1,7 +1,18 @@
-import React, { useState, useMemo } from 'react';
-import { RotateCcw, Clock, AlertCircle, CheckCircle2, ChevronRight, Sliders, MapPin, Compass } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { RotateCcw, Clock, AlertCircle, CheckCircle2, ChevronRight, Sliders, MapPin, Compass, Calendar, ExternalLink, Loader2 } from 'lucide-react';
 import { Aircraft, SightingReport } from '../types';
 import { AirspaceMap } from './AirspaceMap';
+import { fetchAircraftPhotoWithCallsignFallback, AircraftPhoto } from '../utils/aircraftPhoto';
+import { buildFlightradar24URL, getFlightradar24LinkText } from '../utils/flightradar24';
+
+interface HistoryMetadata {
+  earliest: string | null;
+  latest: string | null;
+  total_records: number;
+  days_of_history: number;
+  retention_days: number;
+  recorder_started: string | null;
+}
 
 interface RewindCorrelateViewProps {
   sightings: SightingReport[];
@@ -18,66 +29,162 @@ export const RewindCorrelateView: React.FC<RewindCorrelateViewProps> = ({
     sightings.length > 0 ? sightings[0].id : 0
   );
   const [searchRadius, setSearchRadius] = useState<number>(25);
-  const [timeOffsetMinutes, setTimeOffsetMinutes] = useState<number>(0);
+  const [selectedTime, setSelectedTime] = useState<Date | null>(null); // null = use sighting time
   const [selectedMatch, setSelectedMatch] = useState<Aircraft | null>(null);
+  const [rewindFlights, setRewindFlights] = useState<Aircraft[]>([]);
+  const [historyMeta, setHistoryMeta] = useState<HistoryMetadata | null>(null);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Aircraft photo state for selected match
+  const [aircraftPhoto, setAircraftPhoto] = useState<AircraftPhoto | null>(null);
+  const [photoLoading, setPhotoLoading] = useState(false);
 
   const activeSighting = useMemo(() => {
     return sightings.find((s) => s.id === selectedSightingId) || null;
   }, [sightings, selectedSightingId]);
 
-  // Calculate simulated historical aircraft positions based on time offset and sighting location
-  const simulatedRewindFlights: Aircraft[] = useMemo(() => {
-    if (!activeSighting) return [];
-
-    // For sighting #103 (Marcus K. Jensen, West Omaha): has a matched civil Cessna
-    if (activeSighting.id === 103) {
-      const offsetLat = (timeOffsetMinutes * 0.008);
-      const offsetLon = (timeOffsetMinutes * 0.012);
-      return [
-        {
-          hex: 'A5E902',
-          callsign: 'N8421Z',
-          registration: 'N8421Z',
-          lat: 41.282 + offsetLat + 0.015,
-          lon: -96.241 + offsetLon - 0.02,
-          altitude: 3200,
-          ground_speed: 110,
-          track: 72,
-          squawk: '1200',
-          sources: ['adsb'],
-          aircraft_type: 'C172 (Cessna 172 Skyhawk)',
-          origin: 'MLE (Millard Airport)',
-          destination: 'MLE (Millard Airport)',
-        },
-      ];
-    }
-
-    // For sightings with "no_match" (e.g. Fontenelle Forest #101, Bennington #102):
-    // In realistic conditions, distant aircraft may be outside the tight radius or altitude
-    if (activeSighting.id === 101 || activeSighting.id === 102) {
-      if (searchRadius >= 50) {
-        // High altitude distant flight beyond 50 miles
-        return [
-          {
-            hex: 'A9E71F',
-            callsign: 'DAL1422',
-            registration: 'N374NW',
-            lat: 41.95,
-            lon: -96.85,
-            altitude: 36000,
-            ground_speed: 460,
-            track: 265,
-            squawk: '1105',
-            sources: ['adsb', 'api'],
-            aircraft_type: 'A320',
-          },
-        ];
+  // Fetch history metadata on mount
+  useEffect(() => {
+    const fetchMeta = async () => {
+      try {
+        const res = await fetch('/api/history-metadata');
+        if (res.ok) {
+          const data = await res.json();
+          setHistoryMeta(data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch history metadata:', err);
       }
-      return [];
+    };
+    fetchMeta();
+  }, []);
+
+  // Fetch historical aircraft from backend rewind API
+  useEffect(() => {
+    if (!activeSighting) {
+      setRewindFlights([]);
+      return;
     }
 
-    return currentAircraft.slice(0, 2);
-  }, [activeSighting, timeOffsetMinutes, searchRadius, currentAircraft]);
+    // Abort previous request if still pending
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+
+    const fetchRewindAircraft = async () => {
+      setIsLoadingHistory(true);
+      try {
+        // Use selected time or sighting time
+        const targetTime = selectedTime || new Date(activeSighting.sighting_time);
+        const time = targetTime.toISOString();
+
+        const params = new URLSearchParams({
+          time,
+          lat: activeSighting.lat.toString(),
+          lon: activeSighting.lon.toString(),
+          radius: searchRadius.toString(),
+        });
+
+        const res = await fetch(`/api/rewind?${params}`, {
+          signal: abortControllerRef.current?.signal
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            // Deduplicate: one position per ICAO closest to target time
+            const deduped = deduplicateByIcao(data, targetTime);
+            setRewindFlights(deduped);
+          } else {
+            setRewindFlights([]);
+          }
+        } else {
+          const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+          console.error('Rewind API error:', errorData);
+          setRewindFlights([]);
+        }
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.error('Failed to fetch rewind data:', err);
+          setRewindFlights([]);
+        }
+      } finally {
+        setIsLoadingHistory(false);
+      }
+    };
+
+    // Debounce: wait 300ms after last change
+    const timeoutId = setTimeout(fetchRewindAircraft, 300);
+    return () => clearTimeout(timeoutId);
+  }, [activeSighting, selectedTime, searchRadius]);
+
+  // Fetch aircraft photo when selected match changes
+  useEffect(() => {
+    if (!selectedMatch?.hex) {
+      setAircraftPhoto(null);
+      return;
+    }
+
+    let isMounted = true;
+
+    const fetchPhoto = async () => {
+      setPhotoLoading(true);
+      setAircraftPhoto(null);
+
+      const photo = await fetchAircraftPhotoWithCallsignFallback({
+        hex: selectedMatch.hex,
+        registration: selectedMatch.registration || null,
+        callsign: selectedMatch.callsign || undefined,
+      });
+
+      if (isMounted) {
+        setAircraftPhoto(photo);
+        setPhotoLoading(false);
+      }
+    };
+
+    fetchPhoto();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedMatch?.hex]); // Only re-fetch when hex changes
+
+  // Deduplicate aircraft by ICAO, keeping the observation closest to target time
+  const deduplicateByIcao = (observations: any[], targetTime: Date): Aircraft[] => {
+    const byIcao = new Map<string, any>();
+
+    for (const obs of observations) {
+      const icao = obs.icao_hex;
+      const obsTime = new Date(obs.timestamp);
+      const timeDiff = Math.abs(obsTime.getTime() - targetTime.getTime());
+
+      if (!byIcao.has(icao)) {
+        byIcao.set(icao, { ...obs, timeDiff });
+      } else {
+        const existing = byIcao.get(icao);
+        if (timeDiff < existing.timeDiff) {
+          byIcao.set(icao, { ...obs, timeDiff });
+        }
+      }
+    }
+
+    // Convert to Aircraft format
+    return Array.from(byIcao.values()).map(obs => ({
+      hex: obs.icao_hex,
+      callsign: obs.callsign,
+      lat: obs.lat,
+      lon: obs.lon,
+      altitude: obs.altitude,
+      ground_speed: obs.ground_speed,
+      track: obs.track,
+      squawk: obs.squawk,
+    }));
+  };
+
+  const simulatedRewindFlights = rewindFlights;
 
   // Calculate distance to sighting for each flight
   const flightMatches = useMemo(() => {
@@ -108,15 +215,40 @@ export const RewindCorrelateView: React.FC<RewindCorrelateViewProps> = ({
   const handlePrev = () => {
     if (currentIndex > 0) {
       setSelectedSightingId(sightings[currentIndex - 1].id);
-      setTimeOffsetMinutes(0);
+      setSelectedTime(null); // Reset to sighting time
     }
   };
   const handleNext = () => {
     if (currentIndex < sightings.length - 1) {
       setSelectedSightingId(sightings[currentIndex + 1].id);
-      setTimeOffsetMinutes(0);
+      setSelectedTime(null); // Reset to sighting time
     }
   };
+
+  const handleBackToLive = () => {
+    setSelectedTime(null); // Clear custom time, use sighting time
+  };
+
+  // Calculate date range for date picker (30 days back from now, or earliest available)
+  const getDateLimits = () => {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    let minDate = thirtyDaysAgo;
+    if (historyMeta?.earliest) {
+      const earliestDate = new Date(historyMeta.earliest);
+      minDate = earliestDate > thirtyDaysAgo ? earliestDate : thirtyDaysAgo;
+    }
+
+    return { minDate, maxDate: now };
+  };
+
+  const { minDate, maxDate } = getDateLimits();
+
+  // Check if selected time is before earliest data
+  const isBeforeEarliestData = selectedTime && historyMeta?.earliest
+    ? selectedTime < new Date(historyMeta.earliest)
+    : false;
 
   return (
     <div className="space-y-6">
@@ -174,35 +306,98 @@ export const RewindCorrelateView: React.FC<RewindCorrelateViewProps> = ({
             heightClass="h-[460px] sm:h-[500px]"
           />
 
-          {/* Time Scrubber & Radius Controls */}
+          {/* Time Controls & Radius */}
           <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 space-y-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-cyan-400" />
-                <span className="text-sm font-semibold text-white">Temporal Scrubbing Window</span>
+                <Calendar className="w-4 h-4 text-cyan-400" />
+                <span className="text-sm font-semibold text-white">Historical Time Selection (30-Day Archive)</span>
               </div>
-              <span className="text-xs font-mono tabular-nums text-cyan-400 font-semibold bg-cyan-950/70 border border-cyan-800/60 px-2 py-0.5 rounded">
-                Offset: {timeOffsetMinutes >= 0 ? `+${timeOffsetMinutes}` : timeOffsetMinutes} min
-              </span>
+              {selectedTime && (
+                <button
+                  onClick={handleBackToLive}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-cyan-400 bg-cyan-950/40 border border-cyan-800/60 rounded-lg hover:bg-cyan-950/60 transition-colors"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Back to Sighting Time
+                </button>
+              )}
             </div>
 
-            {/* Slider */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-mono text-slate-400">
-                <span>-10 min</span>
-                <span className="text-slate-200">Sighting Time (T=0)</span>
-                <span>+10 min</span>
+            {/* Date and Time Pickers */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-mono text-slate-400 uppercase">Date</label>
+                <input
+                  type="date"
+                  value={selectedTime ? selectedTime.toISOString().split('T')[0] : (activeSighting ? new Date(activeSighting.sighting_time).toISOString().split('T')[0] : '')}
+                  min={minDate.toISOString().split('T')[0]}
+                  max={maxDate.toISOString().split('T')[0]}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      const currentTime = selectedTime || (activeSighting ? new Date(activeSighting.sighting_time) : new Date());
+                      const [year, month, day] = e.target.value.split('-').map(Number);
+                      const newTime = new Date(currentTime);
+                      newTime.setFullYear(year, month - 1, day);
+                      setSelectedTime(newTime);
+                    }
+                  }}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white text-sm font-mono focus:border-cyan-500 focus:outline-none"
+                />
               </div>
-              <input
-                type="range"
-                min="-10"
-                max="10"
-                step="0.5"
-                value={timeOffsetMinutes}
-                onChange={(e) => setTimeOffsetMinutes(parseFloat(e.target.value))}
-                className="w-full accent-cyan-400 cursor-pointer"
-              />
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-mono text-slate-400 uppercase">Time (UTC)</label>
+                <input
+                  type="time"
+                  step="60"
+                  value={selectedTime ? selectedTime.toISOString().split('T')[1].substring(0, 5) : (activeSighting ? new Date(activeSighting.sighting_time).toISOString().split('T')[1].substring(0, 5) : '')}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      const currentTime = selectedTime || (activeSighting ? new Date(activeSighting.sighting_time) : new Date());
+                      const [hours, minutes] = e.target.value.split(':').map(Number);
+                      const newTime = new Date(currentTime);
+                      newTime.setUTCHours(hours, minutes, 0, 0);
+                      setSelectedTime(newTime);
+                    }
+                  }}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white text-sm font-mono focus:border-cyan-500 focus:outline-none"
+                />
+              </div>
             </div>
+
+            {/* History availability info */}
+            {historyMeta && (
+              <div className="text-xs text-slate-400 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span>History available:</span>
+                  <span className="font-mono text-cyan-400">
+                    {historyMeta.days_of_history.toFixed(1)} days ({historyMeta.total_records.toLocaleString()} records)
+                  </span>
+                </div>
+                {historyMeta.recorder_started && (
+                  <div className="flex items-center justify-between">
+                    <span>Recording since:</span>
+                    <span className="font-mono text-slate-300">
+                      {new Date(historyMeta.recorder_started).toLocaleDateString()} {new Date(historyMeta.recorder_started).toLocaleTimeString()}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Warning if selected time is before data */}
+            {isBeforeEarliestData && (
+              <div className="bg-amber-950/30 border border-amber-800/50 rounded-lg p-3 space-y-1">
+                <div className="flex items-center gap-2 text-amber-400 text-sm font-semibold">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>No tracking data before {historyMeta?.recorder_started ? new Date(historyMeta.recorder_started).toLocaleDateString() : 'recorder start'}</span>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  The recorder started on {historyMeta?.recorder_started ? new Date(historyMeta.recorder_started).toLocaleString() : 'an unknown date'}. Historical lookback only works for times after recording began.
+                </p>
+              </div>
+            )}
 
             {/* Radius selector */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
@@ -316,11 +511,27 @@ export const RewindCorrelateView: React.FC<RewindCorrelateViewProps> = ({
                     ADS-B Archive Correlation
                   </div>
                   <span className="text-xs font-mono text-slate-400">
-                    Window: ±10m · {searchRadius}mi
+                    Window: ±3m · {searchRadius}mi
                   </span>
                 </div>
 
-                {flightMatches.length === 0 ? (
+                {isBeforeEarliestData ? (
+                  <div className="bg-slate-950 border border-amber-800/50 rounded-lg p-4 space-y-2">
+                    <div className="flex items-center gap-2 text-amber-400">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span className="font-bold text-sm tracking-tight">
+                        No tracking data before {historyMeta?.recorder_started ? new Date(historyMeta.recorder_started).toLocaleDateString() : 'recorder start'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      The recorder started on {historyMeta?.recorder_started ? new Date(historyMeta.recorder_started).toLocaleString() : 'an unknown date'}. Selected time is before recording began. 30-day lookback only works once 30 days of data have accumulated.
+                    </p>
+                  </div>
+                ) : isLoadingHistory ? (
+                  <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 text-center">
+                    <div className="text-sm text-slate-400">Loading historical data...</div>
+                  </div>
+                ) : flightMatches.length === 0 ? (
                   /* CRITICAL WORDING RULE: MANDATORY EXACT TERMINOLOGY */
                   <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 space-y-2">
                     <div className="flex items-center gap-2 text-amber-400">
@@ -341,38 +552,104 @@ export const RewindCorrelateView: React.FC<RewindCorrelateViewProps> = ({
                     </div>
 
                     <div className="space-y-2">
-                      {flightMatches.map((flight) => (
-                        <div
-                          key={flight.hex}
-                          onClick={() => setSelectedMatch(flight)}
-                          className={`p-3 rounded-lg border text-xs cursor-pointer transition-colors ${
-                            selectedMatch?.hex === flight.hex
-                              ? 'bg-cyan-950/40 border-cyan-500/70'
-                              : 'bg-slate-950 border-slate-800 hover:border-slate-700'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="font-bold text-white text-sm">
-                              {flight.callsign || flight.hex}
-                            </span>
-                            <span className="font-mono text-cyan-400 font-semibold tabular-nums">
-                              {flight.distance_miles} mi away
-                            </span>
-                          </div>
-
-                          <div className="grid grid-cols-3 gap-2 font-mono text-[11px] text-slate-400 tabular-nums">
-                            <span>ALT: <strong className="text-slate-200">{flight.altitude?.toLocaleString() || 'N/A'} ft</strong></span>
-                            <span>SPD: <strong className="text-slate-200">{flight.ground_speed || 'N/A'} kts</strong></span>
-                            <span>HDG: <strong className="text-slate-200">{flight.track}°</strong></span>
-                          </div>
-
-                          {flight.aircraft_type && (
-                            <div className="text-[11px] text-slate-400 mt-1 truncate">
-                              Aircraft: {flight.aircraft_type}
+                      {flightMatches.map((flight) => {
+                        const isSelected = selectedMatch?.hex === flight.hex;
+                        return (
+                          <div
+                            key={flight.hex}
+                            onClick={() => setSelectedMatch(flight)}
+                            className={`p-3 rounded-lg border text-xs cursor-pointer transition-colors ${
+                              isSelected
+                                ? 'bg-cyan-950/40 border-cyan-500/70'
+                                : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-bold text-white text-sm">
+                                {flight.callsign || flight.hex}
+                              </span>
+                              <span className="font-mono text-cyan-400 font-semibold tabular-nums">
+                                {flight.distance_miles} mi away
+                              </span>
                             </div>
-                          )}
-                        </div>
-                      ))}
+
+                            <div className="grid grid-cols-3 gap-2 font-mono text-[11px] text-slate-400 tabular-nums">
+                              <span>ALT: <strong className="text-slate-200">{flight.altitude?.toLocaleString() || 'N/A'} ft</strong></span>
+                              <span>SPD: <strong className="text-slate-200">{flight.ground_speed || 'N/A'} kts</strong></span>
+                              <span>HDG: <strong className="text-slate-200">{flight.track}°</strong></span>
+                            </div>
+
+                            {flight.aircraft_type && (
+                              <div className="text-[11px] text-slate-400 mt-1 truncate">
+                                Aircraft: {flight.aircraft_type}
+                              </div>
+                            )}
+
+                            {/* Expanded view for selected aircraft */}
+                            {isSelected && (
+                              <div className="mt-3 pt-3 border-t border-slate-700/50 space-y-3">
+                                {/* Aircraft Photo */}
+                                {photoLoading ? (
+                                  <div className="flex items-center justify-center py-4">
+                                    <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />
+                                  </div>
+                                ) : aircraftPhoto ? (
+                                  <div className="space-y-2">
+                                    <img
+                                      src={aircraftPhoto.url}
+                                      alt="Aircraft"
+                                      className="w-full rounded-lg border border-slate-700"
+                                    />
+                                    <div className="flex items-center justify-between text-[10px]">
+                                      <span className="text-slate-400">
+                                        Photo: <span className="text-cyan-400">{aircraftPhoto.photographer}</span>
+                                      </span>
+                                      <a
+                                        href={aircraftPhoto.link}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        Planespotters
+                                        <ExternalLink className="w-3 h-3" />
+                                      </a>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <p className="text-[11px] text-slate-400 text-center py-2">No photo for this airframe</p>
+                                )}
+
+                                {/* Flightradar24 Link */}
+                                {(() => {
+                                  const fr24URL = buildFlightradar24URL({
+                                    callsign: flight.callsign || flight.hex,
+                                    registration: flight.registration,
+                                    hex: flight.hex,
+                                  });
+                                  const linkText = getFlightradar24LinkText({
+                                    callsign: flight.callsign || flight.hex,
+                                    registration: flight.registration,
+                                    hex: flight.hex,
+                                  });
+                                  return fr24URL ? (
+                                    <a
+                                      href={fr24URL}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex items-center justify-center gap-2 px-3 py-2 text-[11px] font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <ExternalLink className="w-3 h-3" />
+                                      <span>{linkText}</span>
+                                    </a>
+                                  ) : null;
+                                })()}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

@@ -7,6 +7,9 @@ import { FieldDispatchView } from './components/FieldDispatchView';
 import { LiveSDRView } from './components/LiveSDRView';
 import { StationInfoView } from './components/StationInfoView';
 import { ArchiveView } from './components/ArchiveView';
+import { WardrivingView } from './components/WardrivingView';
+import { SkyARView } from './components/SkyARView';
+import { VideoCallView } from './components/VideoCallView';
 import { ReportSightingModal } from './components/ReportSightingModal';
 import { PWAPromptModal } from './components/PWAPromptModal';
 import { INITIAL_AIRCRAFT, INITIAL_SIGHTINGS, INITIAL_CHAT, OMAHA_STATION } from './data/initialData';
@@ -16,7 +19,7 @@ import { usePWAInstall } from './hooks/usePWAInstall';
 import { useNotifications } from './hooks/useNotifications';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'radar' | 'rewind' | 'sightings' | 'dispatch' | 'sdr' | 'archive' | 'station'>('radar');
+  const [activeTab, setActiveTab] = useState<'radar' | 'rewind' | 'sightings' | 'dispatch' | 'sdr' | 'skyar' | 'wardriving' | 'videocall' | 'archive' | 'station'>('radar');
   const [aircraft, setAircraft] = useState<Aircraft[]>(INITIAL_AIRCRAFT);
   const [sightings, setSightings] = useState<SightingReport[]>(INITIAL_SIGHTINGS);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
@@ -352,6 +355,12 @@ export default function App() {
             onSendMessage={handleSendMessage}
           />
         )}
+
+        {activeTab === 'skyar' && <SkyARView aircraft={aircraft} />}
+
+        {activeTab === 'wardriving' && <WardrivingView />}
+
+        {activeTab === 'videocall' && <VideoCallView />}
 
         {activeTab === 'station' && <StationInfoView />}
 

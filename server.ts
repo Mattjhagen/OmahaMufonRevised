@@ -617,6 +617,114 @@ COORDINATES: 43.8500° N, 82.4500° W (Lake Huron Central Airspace).`,
     }
   });
 
+  // Wardriving Backend Proxy Endpoints → :5005 (WiFi aggregates)
+  app.get('/api/wardriving/summary', async (req, res) => {
+    try {
+      const response = await fetch('http://localhost:5005/api/wardriving/summary');
+      if (response.ok) {
+        const data = await response.json();
+        return res.json(data);
+      }
+      return res.status(502).json({ error: 'Wardriving backend unavailable' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/wardriving/channels', async (req, res) => {
+    try {
+      const response = await fetch('http://localhost:5005/api/wardriving/channels');
+      if (response.ok) {
+        const data = await response.json();
+        return res.json(data);
+      }
+      return res.status(502).json({ error: 'Wardriving channels unavailable' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/wardriving/heatmap', async (req, res) => {
+    try {
+      const response = await fetch('http://localhost:5005/api/wardriving/heatmap');
+      if (response.ok) {
+        const data = await response.json();
+        return res.json(data);
+      }
+      return res.status(502).json({ error: 'Wardriving heatmap unavailable' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Planespotters.net Photo API Proxy (CORS avoidance + caching)
+  const photoCache = new Map<string, { data: any; timestamp: number }>();
+  const PHOTO_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+  app.get('/api/planespotters/hex/:hex', async (req, res) => {
+    const hex = req.params.hex.toUpperCase();
+    const cacheKey = `hex:${hex}`;
+
+    // Check cache
+    const cached = photoCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < PHOTO_CACHE_TTL) {
+      console.log('[Planespotters] Serving cached photo for hex:', hex);
+      return res.json(cached.data);
+    }
+
+    try {
+      const response = await fetch(`https://api.planespotters.net/pub/photos/hex/${hex}`, {
+        headers: {
+          'User-Agent': 'OmahaMUFON-AirspaceTracker/2.0 (+https://mufonomaha.space/contact; mattjhagen0@gmail.com)',
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        // Cache the result
+        photoCache.set(cacheKey, { data, timestamp: Date.now() });
+        console.log(`[Planespotters] Fetched and cached photo for hex: ${hex} - ${data.photos?.length || 0} photos`);
+        return res.json(data);
+      }
+      console.warn(`[Planespotters] No photos found for hex: ${hex} - HTTP ${response.status}`);
+      return res.status(response.status).json({ photos: [] });
+    } catch (err: any) {
+      console.error('[Planespotters] Error fetching hex photo:', err.message);
+      return res.status(500).json({ error: err.message, photos: [] });
+    }
+  });
+
+  app.get('/api/planespotters/reg/:reg', async (req, res) => {
+    const reg = req.params.reg.toUpperCase();
+    const cacheKey = `reg:${reg}`;
+
+    // Check cache
+    const cached = photoCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < PHOTO_CACHE_TTL) {
+      console.log('[Planespotters] Serving cached photo for reg:', reg);
+      return res.json(cached.data);
+    }
+
+    try {
+      const response = await fetch(`https://api.planespotters.net/pub/photos/reg/${reg}`, {
+        headers: {
+          'User-Agent': 'OmahaMUFON-AirspaceTracker/2.0 (+https://mufonomaha.space/contact; mattjhagen0@gmail.com)',
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        // Cache the result
+        photoCache.set(cacheKey, { data, timestamp: Date.now() });
+        console.log(`[Planespotters] Fetched and cached photo for reg: ${reg} - ${data.photos?.length || 0} photos`);
+        return res.json(data);
+      }
+      console.warn(`[Planespotters] No photos found for reg: ${reg} - HTTP ${response.status}`);
+      return res.status(response.status).json({ photos: [] });
+    } catch (err: any) {
+      console.error('[Planespotters] Error fetching reg photo:', err.message);
+      return res.status(500).json({ error: err.message, photos: [] });
+    }
+  });
+
   // SDR Backend Proxy Endpoints → :8082 (Custom rtl_fm streaming)
   app.get('/api/sdr/status', async (req, res) => {
     try {
@@ -697,6 +805,10 @@ COORDINATES: 43.8500° N, 82.4500° W (Lake Huron Central Airspace).`,
     },
     logLevel: 'warn',
   }));
+
+  // CMAMeet Video Conference now served via Cloudflare tunnel at meet.mufonomaha.space
+  // No proxy needed - iframe points to https://meet.mufonomaha.space
+  // Tunnel routes meet.mufonomaha.space -> localhost:5010
 
   // Government Archive Files - Static file serving
   const archivePath = path.join(__dirname, 'UAP_Files', 'archive-extracted');

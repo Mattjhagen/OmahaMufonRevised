@@ -1,9 +1,9 @@
 import React from 'react';
-import { Radio, Download, Bell, BellOff, Volume2, VolumeX } from 'lucide-react';
+import { Radio, Download, Bell, BellOff, Volume2, VolumeX, Wifi, Camera, Video } from 'lucide-react';
 
 interface HeaderProps {
-  activeTab: 'radar' | 'rewind' | 'sightings' | 'dispatch' | 'sdr' | 'archive' | 'station';
-  setActiveTab: (tab: 'radar' | 'rewind' | 'sightings' | 'dispatch' | 'sdr' | 'archive' | 'station') => void;
+  activeTab: 'radar' | 'rewind' | 'sightings' | 'dispatch' | 'sdr' | 'skyar' | 'wardriving' | 'videocall' | 'archive' | 'station';
+  setActiveTab: (tab: 'radar' | 'rewind' | 'sightings' | 'dispatch' | 'sdr' | 'skyar' | 'wardriving' | 'videocall' | 'archive' | 'station') => void;
   onOpenReportModal: () => void;
   liveCount: number;
   receiverStatus: 'ONLINE' | 'DEGRADED' | 'OFFLINE';
@@ -103,6 +103,30 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="text-[9px] font-mono font-bold px-1 py-0.2 rounded bg-purple-950 border border-purple-800 text-purple-300">
               VHF/UHF
             </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('skyar')}
+            className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 flex items-center gap-1.5 ${
+              activeTab === 'skyar'
+                ? 'text-cyan-400 border-cyan-400 font-semibold'
+                : 'border-transparent hover:text-slate-200'
+            }`}
+          >
+            <span>Sky AR</span>
+            <span className="text-[9px] font-mono font-bold px-1 py-0.2 rounded bg-cyan-950 border border-cyan-800 text-cyan-300">
+              Camera
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('videocall')}
+            className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 flex items-center gap-1.5 ${
+              activeTab === 'videocall'
+                ? 'text-cyan-400 border-cyan-400 font-semibold'
+                : 'border-transparent hover:text-slate-200'
+            }`}
+          >
+            <Video className="w-3.5 h-3.5" />
+            <span>Video Call</span>
           </button>
           <button
             onClick={() => setActiveTab('dispatch')}
@@ -232,6 +256,20 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <span>Live SDR</span>
             <span className="text-[8px] font-mono px-1 rounded bg-purple-950 text-purple-300">VHF</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('skyar')}
+            className={`whitespace-nowrap shrink-0 px-2 py-1 flex items-center gap-1 ${activeTab === 'skyar' ? 'text-cyan-400 font-semibold' : ''}`}
+          >
+            <Camera className="w-3 h-3" />
+            <span>Sky AR</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('wardriving')}
+            className={`whitespace-nowrap shrink-0 px-2 py-1 flex items-center gap-1 ${activeTab === 'wardriving' ? 'text-purple-400 font-semibold' : ''}`}
+          >
+            <Wifi className="w-3 h-3" />
+            <span>Wardriving</span>
           </button>
           <button
             onClick={() => setActiveTab('dispatch')}

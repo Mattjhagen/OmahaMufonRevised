@@ -19,9 +19,13 @@ import {
   ChevronUp,
   X,
   AlertTriangle,
+  ExternalLink,
+  Loader2,
 } from 'lucide-react';
 import { Aircraft, AtmosphericData, WeatherLayerType, ChatMessage } from '../types';
 import { AirspaceMap } from './AirspaceMap';
+import { fetchAircraftPhotoWithCallsignFallback, AircraftPhoto } from '../utils/aircraftPhoto';
+import { buildFlightradar24URL, getFlightradar24LinkText } from '../utils/flightradar24';
 
 interface LiveRadarViewProps {
   aircraft: Aircraft[];
@@ -41,6 +45,10 @@ export const LiveRadarView: React.FC<LiveRadarViewProps> = ({
   const [selectedAircraft, setSelectedAircraft] = useState<Aircraft | null>(
     aircraft.length > 0 ? aircraft[0] : null
   );
+
+  // Aircraft photo state
+  const [aircraftPhoto, setAircraftPhoto] = useState<AircraftPhoto | null>(null);
+  const [photoLoading, setPhotoLoading] = useState(false);
 
   // Weather overlay state
   const [weatherLayer, setWeatherLayer] = useState<WeatherLayerType>('none');
@@ -63,6 +71,14 @@ export const LiveRadarView: React.FC<LiveRadarViewProps> = ({
       chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [chatMessages, isChatOpen]);
+
+  // Auto-select first aircraft when aircraft list loads
+  useEffect(() => {
+    // If no aircraft is selected and aircraft are available, select the first one
+    if (!selectedAircraft && aircraft.length > 0) {
+      setSelectedAircraft(aircraft[0]);
+    }
+  }, [aircraft, selectedAircraft]);
 
   // Fetch live weather data from /api/weather
   useEffect(() => {
@@ -90,6 +106,38 @@ export const LiveRadarView: React.FC<LiveRadarViewProps> = ({
       clearInterval(interval);
     };
   }, []);
+
+  // Fetch aircraft photo when selected aircraft changes
+  useEffect(() => {
+    if (!selectedAircraft?.hex) {
+      setAircraftPhoto(null);
+      return;
+    }
+
+    let isMounted = true;
+
+    const fetchPhoto = async () => {
+      setPhotoLoading(true);
+      setAircraftPhoto(null);
+
+      const photo = await fetchAircraftPhotoWithCallsignFallback({
+        hex: selectedAircraft.hex,
+        registration: selectedAircraft.registration || null,
+        callsign: selectedAircraft.callsign || undefined,
+      });
+
+      if (isMounted) {
+        setAircraftPhoto(photo);
+        setPhotoLoading(false);
+      }
+    };
+
+    fetchPhoto();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedAircraft?.hex]); // Only re-fetch when hex changes, not on every aircraft update
 
   const handleSendChat = (e: React.FormEvent) => {
     e.preventDefault();
@@ -364,6 +412,72 @@ export const LiveRadarView: React.FC<LiveRadarViewProps> = ({
                   )}
                 </div>
               </div>
+
+              {/* Aircraft Photo */}
+              {(photoLoading || aircraftPhoto) && (
+                <div className="mt-4 pt-4 border-t border-slate-800">
+                  {photoLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 text-cyan-400 animate-spin" />
+                    </div>
+                  ) : aircraftPhoto ? (
+                    <div className="space-y-2">
+                      <img
+                        src={aircraftPhoto.url}
+                        alt="Aircraft"
+                        className="w-full rounded-lg border border-slate-700"
+                      />
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400">
+                          Photo: <span className="text-cyan-400">{aircraftPhoto.photographer}</span>
+                        </span>
+                        <a
+                          href={aircraftPhoto.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+                        >
+                          Planespotters
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
+              {!photoLoading && !aircraftPhoto && (
+                <div className="mt-4 pt-4 border-t border-slate-800">
+                  <p className="text-sm text-slate-400 text-center">No photo for this airframe</p>
+                </div>
+              )}
+
+              {/* Flightradar24 Link */}
+              {(() => {
+                const fr24URL = buildFlightradar24URL({
+                  callsign: selectedAircraft.callsign || selectedAircraft.hex,
+                  registration: selectedAircraft.registration,
+                  hex: selectedAircraft.hex,
+                });
+                const linkText = getFlightradar24LinkText({
+                  callsign: selectedAircraft.callsign || selectedAircraft.hex,
+                  registration: selectedAircraft.registration,
+                  hex: selectedAircraft.hex,
+                });
+                return fr24URL ? (
+                  <div className="mt-4 pt-4 border-t border-slate-800">
+                    <a
+                      href={fr24URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      <span>{linkText}</span>
+                    </a>
+                  </div>
+                ) : null;
+              })()}
 
               {/* Telemetry data grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4">

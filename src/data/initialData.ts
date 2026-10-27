@@ -3,7 +3,7 @@ import { Aircraft, SightingReport, ChatMessage, ReceiverStationInfo } from '../t
 export const OMAHA_STATION: ReceiverStationInfo = {
   callsign: 'MUFON-NE-OMA1',
   location: 'Omaha, Nebraska, USA',
-  gridSquare: 'EN09xv',
+  gridSquare: 'EN21ag',
   lat: 41.2565,
   lon: -95.9345,
   altitudeFt: 1040,
